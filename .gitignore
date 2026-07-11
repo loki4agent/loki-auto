@@ -1,0 +1,27 @@
+# Rust
+target/
+/packages/sandbox/pkg
+**/*.rs.bk
+*.pdb
+**/mutants.out*/
+
+# Node / JS / TS
+node_modules/
+dist/
+.DS_Store
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# System/IDE
+.idea/
+.vscode/
+
+*.xpi
+
+# Local scripts
+*.sh

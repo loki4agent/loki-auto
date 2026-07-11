@@ -1,0 +1,17 @@
+{
+  "name": "@loki/ext-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:chrome": "vite build --outDir ../../dist/chrome && TARGET_BROWSER=chrome OUT_DIR=../../dist/chrome bun scripts/build-manifest.js",
+    "build:firefox": "TARGET_BROWSER=firefox ENTRY_NAME=background vite build --outDir ../../dist/firefox && TARGET_BROWSER=firefox ENTRY_NAME=content_script vite build --outDir ../../dist/firefox && TARGET_BROWSER=firefox OUT_DIR=../../dist/firefox bun scripts/build-manifest.js",
+    "build": "bun run build:chrome && bun run build:firefox"
+  },
+  "dependencies": {
+    "@loki/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^8.0.0-alpha.0"
+  }
+}

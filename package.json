@@ -1,0 +1,16 @@
+{
+  "name": "loki-auto-oss",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:sandbox": "cd packages/sandbox && wasm-pack build --target web",
+    "build:ext": "bun --filter=@loki/ext-core run build && bun --filter=@loki/ext-ui run build",
+    "build": "bun run build:sandbox && bun run build:ext"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
