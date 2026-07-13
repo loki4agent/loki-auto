@@ -24,10 +24,20 @@ export function loki_click(selector) {
 export function loki_type_text(selector, text) {
   const el = document.querySelector(selector);
   if (el) {
-    if ('value' in el) {
+    const isContentEditable = el.hasAttribute('contenteditable') || el.getAttribute('contenteditable') === 'true' || el.contentEditable === 'true';
+    const hasValue = 'value' in el;
+
+    if (hasValue) {
       el.focus();
       el.value = '';
       el.value = text;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    } else if (isContentEditable) {
+      el.focus();
+      el.textContent = '';
+      el.textContent = text;
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
@@ -38,12 +48,24 @@ export function loki_type_text(selector, text) {
 
 export function loki_type_as_human(selector, text) {
   const el = document.querySelector(selector);
-  if (!el || !('value' in el)) {
+  if (!el) {
+    return false;
+  }
+
+  const isContentEditable = el.hasAttribute('contenteditable') || el.getAttribute('contenteditable') === 'true' || el.contentEditable === 'true';
+  const hasValue = 'value' in el;
+
+  if (!hasValue && !isContentEditable) {
     return false;
   }
 
   el.focus();
-  el.value = '';
+  
+  if (hasValue) {
+    el.value = '';
+  } else {
+    el.textContent = '';
+  }
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
@@ -57,8 +79,11 @@ export function loki_type_as_human(selector, text) {
     });
     el.dispatchEvent(keydownEvent);
 
-    // Append current character
-    el.value += char;
+    if (hasValue) {
+      el.value += char;
+    } else {
+      el.textContent += char;
+    }
 
     // Dispatch Input event (notifies modern JS frameworks of state changes)
     const inputEvent = new Event('input', { bubbles: true });
