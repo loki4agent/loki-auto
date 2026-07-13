@@ -1,4 +1,4 @@
-# loki-auto (Open-Source Edition)
+# loki-auto
 
 `loki-auto` is an ultra-lightweight, zero-dependency **"Serverless in Browser"** web automation runtime designed for the AI Agent era. It executes episodic, transient LLM tool actions inside a secure **Rhai VM (compiled to WebAssembly)** sandbox container directly within the browser's foreground page context, completely bypassing heavy headless browser resource overhead.
 
