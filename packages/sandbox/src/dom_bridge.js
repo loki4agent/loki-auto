@@ -36,10 +36,11 @@ export function loki_type_text(selector, text) {
       return true;
     } else if (isContentEditable) {
       el.focus();
-      el.textContent = '';
-      el.textContent = text;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
+      // Select all content and delete it first
+      document.execCommand('selectAll', false, null);
+      document.execCommand('delete', false, null);
+      // Insert the text using browser native command so DraftJS/React registers it
+      document.execCommand('insertText', false, text);
       return true;
     }
   }
@@ -64,7 +65,9 @@ export function loki_type_as_human(selector, text) {
   if (hasValue) {
     el.value = '';
   } else {
-    el.textContent = '';
+    // Clear contenteditable content first
+    document.execCommand('selectAll', false, null);
+    document.execCommand('delete', false, null);
   }
 
   for (let i = 0; i < text.length; i++) {
@@ -81,13 +84,13 @@ export function loki_type_as_human(selector, text) {
 
     if (hasValue) {
       el.value += char;
+      // Dispatch Input event (notifies frameworks of state changes for standard inputs)
+      const inputEvent = new Event('input', { bubbles: true });
+      el.dispatchEvent(inputEvent);
     } else {
-      el.textContent += char;
+      // Use document.execCommand to insert the character natively so DraftJS handles state updates
+      document.execCommand('insertText', false, char);
     }
-
-    // Dispatch Input event (notifies modern JS frameworks of state changes)
-    const inputEvent = new Event('input', { bubbles: true });
-    el.dispatchEvent(inputEvent);
 
     // Dispatch Keyup event
     const keyupEvent = new KeyboardEvent('keyup', {
