@@ -34,10 +34,12 @@ graph TD
 
 ### 2. Launch the Local MCP Server
 
-Start the Axum host to begin listening for browser connections and LLM tool calls:
+Start the Axum host to begin listening for browser connections and LLM tool calls.
+
+You can download the pre-compiled `loki-mcp-server` binary for your platform from [GitHub Releases](https://github.com/loki4agent/loki-auto/releases) and run it directly, or run it from source:
 
 ```bash
-# Start the MCP host (default port: 10402)
+# Start the MCP host from source (default port: 10402)
 cargo run --bin loki-mcp-server
 ```
 
