@@ -35,40 +35,40 @@ This document defines the complete API specifications and best practices for wri
 
 * `sleep(ms: i64)`
   - Suspends execution for the specified milliseconds.
-  
+
 * `log(message: Any)`
   - Prints a message to the Execution Console logs. Supports strings, numbers, booleans, and other objects.
-  
+
 * `dom_to_string() -> String`
   - Returns a cleaned, token-optimized (AEO-optimized) HTML tree of the current page. Ideal for LLM analysis.
-  
+
 * `element_exists(selector: String) -> bool`
   - Immediate check if a element matches the CSS selector in the page.
-  
+
 * `wait_element(selector: String, [timeout_ms: i64]) -> bool`
   - Blocks until the element is present in the DOM, or throws a `TimeoutError`. Default timeout: 5000 ms.
-  
+
 * `click(selector: String, [timeout_ms: i64]) -> bool`
   - Waits for the element, then clicks on it. Default timeout: 5000 ms.
-  
+
 * `type_text(selector: String, text: String, [timeout_ms: i64]) -> bool`
   - Waits for the element, then instantly sets its value. Triggers standard input/change events. Recommended for large texts, pasting articles, or generic forms. Default timeout: 5000 ms.
-  
+
 * `type_as_human(selector: String, text: String, [timeout_ms: i64]) -> bool`
   - Waits for the element, then types character-by-character with randomized human typing delays (40ms-120ms) and standard keydown/keyup events. Recommended for search inputs, login credentials, and bypassing anti-bot systems. Default timeout: 5000 ms.
-  
+
 * `get_text(selector: String, [timeout_ms: i64]) -> String`
   - Waits for the element, then extracts its text content. Default timeout: 5000 ms.
-  
+
 * `get_value(selector: String, [timeout_ms: i64]) -> String`
   - Waits for the element, then extracts its input value. Default timeout: 5000 ms.
-  
+
 * `get_attribute(selector: String, attr: String, [timeout_ms: i64]) -> String`
   - Waits for the element, then extracts the value of the specified attribute. Default timeout: 5000 ms.
-  
+
 * `scroll_to(selector: String, [timeout_ms: i64]) -> bool`
   - Waits for the element, then scrolls the viewport smoothly to align it in the center. Default timeout: 5000 ms.
-  
+
 * `get_loki_data(dom_selector: String, [timeout_ms: i64]) -> String`
   - Scopes the target element, queries all child elements bearing `data-loki` attributes, and returns a clean, Markdown-friendly outline description. Default timeout: 5000 ms.
 
@@ -96,10 +96,8 @@ print("DOM size loaded: " + page_html.len());
 
 ## ❓ Help & Resources
 For more details, advanced scripting guides, and integration tutorials, please visit our help center:
-👉 https://loki4agent.com/docs/help
+👉 https://docs.loki4agent.com
 "#;
-
-
 
 #[derive(Deserialize)]
 struct Config {
@@ -135,7 +133,11 @@ enum WsMessageToExtension {
     #[serde(rename = "LOKI_EXECUTE_ONESHOT")]
     ExecuteOneshot(OneshotTaskInput),
     #[serde(rename = "LOKI_OPEN_TAB")]
-    OpenTab { url: String, active: bool, task_id: String },
+    OpenTab {
+        url: String,
+        active: bool,
+        task_id: String,
+    },
     #[serde(rename = "LOKI_CLOSE_TAB")]
     CloseTab { tab_id: i32, task_id: String },
     #[serde(rename = "LOKI_ACTIVATE_TAB")]
@@ -148,7 +150,11 @@ enum WsMessageFromExtension {
     #[serde(rename = "LOKI_EXECUTE_ONESHOT_RESPONSE")]
     ExecuteOneshotResponse(OneshotTaskOutput),
     #[serde(rename = "LOKI_COMMAND_RESPONSE")]
-    CommandResponse { task_id: String, success: bool, data: serde_json::Value },
+    CommandResponse {
+        task_id: String,
+        success: bool,
+        data: serde_json::Value,
+    },
     #[serde(rename = "LOKI_TAB_LIST_UPDATE")]
     TabListUpdate { tabs: Vec<serde_json::Value> },
 }
@@ -209,10 +215,7 @@ async fn main() {
     run_mcp_loop(state).await;
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_websocket(socket, state))
 }
 
@@ -249,7 +252,11 @@ async fn handle_websocket(socket: WebSocket, state: Arc<AppState>) {
                                 let _ = sender.send(serde_json::to_value(&output).unwrap());
                             }
                         }
-                        WsMessageFromExtension::CommandResponse { task_id, success, data } => {
+                        WsMessageFromExtension::CommandResponse {
+                            task_id,
+                            success,
+                            data,
+                        } => {
                             let mut tasks_guard = state_clone.pending_tasks.lock().unwrap();
                             if let Some(sender) = tasks_guard.remove(&task_id) {
                                 let _ = sender.send(json!({ "success": success, "data": data }));
@@ -387,7 +394,10 @@ async fn run_mcp_loop(state: Arc<AppState>) {
                     send_mcp_response(response);
                 }
                 "tools/call" => {
-                    let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+                    let params = req
+                        .get("params")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
                     let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
                     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
@@ -464,64 +474,95 @@ async fn handle_tool_call(
             Ok(json!({ "tabs": tabs }))
         }
         "open_tab" => {
-            let url = arguments.get("url").and_then(|u| u.as_str()).ok_or("Missing 'url' parameter")?;
-            let active = arguments.get("active").and_then(|a| a.as_bool()).unwrap_or(true);
+            let url = arguments
+                .get("url")
+                .and_then(|u| u.as_str())
+                .ok_or("Missing 'url' parameter")?;
+            let active = arguments
+                .get("active")
+                .and_then(|a| a.as_bool())
+                .unwrap_or(true);
             let task_id = format!("cmd_{}", state.task_counter.fetch_add(1, Ordering::SeqCst));
 
             let rx = register_pending_task(&state, &task_id).await;
-            send_ws_message(&state, WsMessageToExtension::OpenTab {
-                url: url.to_string(),
-                active,
-                task_id: task_id.clone(),
-            })?;
+            send_ws_message(
+                &state,
+                WsMessageToExtension::OpenTab {
+                    url: url.to_string(),
+                    active,
+                    task_id: task_id.clone(),
+                },
+            )?;
 
             await_response(rx).await
         }
         "close_tab" => {
-            let tab_id = arguments.get("tab_id").and_then(|t| t.as_i64()).ok_or("Missing 'tab_id' parameter")? as i32;
+            let tab_id = arguments
+                .get("tab_id")
+                .and_then(|t| t.as_i64())
+                .ok_or("Missing 'tab_id' parameter")? as i32;
             let task_id = format!("cmd_{}", state.task_counter.fetch_add(1, Ordering::SeqCst));
 
             let rx = register_pending_task(&state, &task_id).await;
-            send_ws_message(&state, WsMessageToExtension::CloseTab {
-                tab_id,
-                task_id: task_id.clone(),
-            })?;
+            send_ws_message(
+                &state,
+                WsMessageToExtension::CloseTab {
+                    tab_id,
+                    task_id: task_id.clone(),
+                },
+            )?;
 
             await_response(rx).await
         }
         "activate_tab" => {
-            let tab_id = arguments.get("tab_id").and_then(|t| t.as_i64()).ok_or("Missing 'tab_id' parameter")? as i32;
+            let tab_id = arguments
+                .get("tab_id")
+                .and_then(|t| t.as_i64())
+                .ok_or("Missing 'tab_id' parameter")? as i32;
             let task_id = format!("cmd_{}", state.task_counter.fetch_add(1, Ordering::SeqCst));
 
             let rx = register_pending_task(&state, &task_id).await;
-            send_ws_message(&state, WsMessageToExtension::ActivateTab {
-                tab_id,
-                task_id: task_id.clone(),
-            })?;
+            send_ws_message(
+                &state,
+                WsMessageToExtension::ActivateTab {
+                    tab_id,
+                    task_id: task_id.clone(),
+                },
+            )?;
 
             await_response(rx).await
         }
         "execute_loki_oneshot" => {
-            let target_tab_id = arguments.get("target_tab_id").and_then(|t| t.as_i64()).map(|t| t as i32);
-            let target_url_pattern = arguments.get("target_url_pattern").and_then(|u| u.as_str()).map(|s| s.to_string());
-            let rhai_script = arguments.get("rhai_script").and_then(|s| s.as_str()).ok_or("Missing 'rhai_script' parameter")?;
+            let target_tab_id = arguments
+                .get("target_tab_id")
+                .and_then(|t| t.as_i64())
+                .map(|t| t as i32);
+            let target_url_pattern = arguments
+                .get("target_url_pattern")
+                .and_then(|u| u.as_str())
+                .map(|s| s.to_string());
+            let rhai_script = arguments
+                .get("rhai_script")
+                .and_then(|s| s.as_str())
+                .ok_or("Missing 'rhai_script' parameter")?;
             let payload = arguments.get("payload").cloned().unwrap_or(json!({}));
             let task_id = format!("task_{}", state.task_counter.fetch_add(1, Ordering::SeqCst));
 
             let rx = register_pending_task(&state, &task_id).await;
-            send_ws_message(&state, WsMessageToExtension::ExecuteOneshot(OneshotTaskInput {
-                task_id: task_id.clone(),
-                target_tab_id,
-                target_url_pattern,
-                rhai_script: rhai_script.to_string(),
-                payload,
-            }))?;
+            send_ws_message(
+                &state,
+                WsMessageToExtension::ExecuteOneshot(OneshotTaskInput {
+                    task_id: task_id.clone(),
+                    target_tab_id,
+                    target_url_pattern,
+                    rhai_script: rhai_script.to_string(),
+                    payload,
+                }),
+            )?;
 
             await_response(rx).await
         }
-        "get_rhai_documentation" => {
-            Ok(json!({ "documentation": RHAI_DOCUMENTATION }))
-        }
+        "get_rhai_documentation" => Ok(json!({ "documentation": RHAI_DOCUMENTATION })),
         _ => Err(format!("Unknown tool: {}", tool_name)),
     }
 }
@@ -549,7 +590,9 @@ fn send_ws_message(state: &AppState, ws_msg: WsMessageToExtension) -> Result<(),
     }
 }
 
-async fn await_response(rx: oneshot::Receiver<serde_json::Value>) -> Result<serde_json::Value, String> {
+async fn await_response(
+    rx: oneshot::Receiver<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
     // Await response with a timeout (e.g. 45 seconds)
     tokio::select! {
         res = rx => {
