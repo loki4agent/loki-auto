@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:chrome": "ENTRY_NAME=background vite build --outDir ../../dist/chrome && ENTRY_NAME=content_script vite build --outDir ../../dist/chrome && TARGET_BROWSER=chrome OUT_DIR=../../dist/chrome bun scripts/build-manifest.js",
-    "build:firefox": "TARGET_BROWSER=firefox ENTRY_NAME=background vite build --outDir ../../dist/firefox && TARGET_BROWSER=firefox ENTRY_NAME=content_script vite build --outDir ../../dist/firefox && TARGET_BROWSER=firefox OUT_DIR=../../dist/firefox bun scripts/build-manifest.js",
+    "build:chrome": "bun scripts/inline-wasm.js && ENTRY_NAME=background vite build --outDir ../../dist/chrome && ENTRY_NAME=content_script vite build --outDir ../../dist/chrome && TARGET_BROWSER=chrome OUT_DIR=../../dist/chrome bun scripts/build-manifest.js",
+    "build:firefox": "bun scripts/inline-wasm.js && TARGET_BROWSER=firefox ENTRY_NAME=background vite build --outDir ../../dist/firefox && TARGET_BROWSER=firefox ENTRY_NAME=content_script vite build --outDir ../../dist/firefox && TARGET_BROWSER=firefox OUT_DIR=../../dist/firefox bun scripts/build-manifest.js",
     "build": "bun run build:chrome && bun run build:firefox"
   },
   "dependencies": {
