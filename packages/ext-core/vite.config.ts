@@ -14,6 +14,9 @@ const input = entry === 'background'
     };
 
 export default defineConfig({
+  define: {
+    'import.meta.url': '""',
+  },
   build: {
     emptyOutDir: false,
     minify: false,
@@ -21,7 +24,7 @@ export default defineConfig({
       input,
       output: {
         entryFileNames: '[name].js',
-        format: isFirefox ? 'iife' : 'es',
+        format: isFirefox ? 'iife' : (entry === 'content_script' ? 'iife' : 'es'),
       },
     },
   },
