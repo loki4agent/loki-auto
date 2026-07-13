@@ -305,7 +305,7 @@ async fn run_mcp_loop(state: Arc<AppState>) {
                             },
                             "serverInfo": {
                                 "name": "loki-mcp-server",
-                                "version": "0.1.0"
+                                "version": "0.1.1"
                             }
                         }
                     });
