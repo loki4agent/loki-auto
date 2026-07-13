@@ -21,6 +21,23 @@ export function loki_click(selector) {
   return false;
 }
 
+function focusEditable(el) {
+  el.focus();
+  const isContentEditable = el.hasAttribute('contenteditable') || el.getAttribute('contenteditable') === 'true' || el.contentEditable === 'true';
+  if (isContentEditable) {
+    try {
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(el);
+      range.collapse(false); // collapse to end
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch (e) {
+      console.warn("Failed to set contenteditable selection range:", e);
+    }
+  }
+}
+
 export function loki_type_text(selector, text) {
   const el = document.querySelector(selector);
   if (el) {
@@ -35,7 +52,7 @@ export function loki_type_text(selector, text) {
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     } else if (isContentEditable) {
-      el.focus();
+      focusEditable(el);
       // Select all content and delete it first
       document.execCommand('selectAll', false, null);
       document.execCommand('delete', false, null);
@@ -60,11 +77,11 @@ export function loki_type_as_human(selector, text) {
     return false;
   }
 
-  el.focus();
-  
   if (hasValue) {
+    el.focus();
     el.value = '';
   } else {
+    focusEditable(el);
     // Clear contenteditable content first
     document.execCommand('selectAll', false, null);
     document.execCommand('delete', false, null);
