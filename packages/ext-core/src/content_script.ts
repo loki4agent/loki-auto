@@ -1,23 +1,23 @@
 import init, { RhaiWasmEngine } from "../../sandbox/pkg/loki_sandbox.js";
-import { wasmBase64 } from "./loki_sandbox_wasm";
 
 let isWasmInitialized = false;
 
-// Convert base64 string back to Uint8Array buffer
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
 async function initializeSandbox() {
   if (isWasmInitialized) return;
-  const wasmBytes = base64ToUint8Array(wasmBase64);
-  await init(wasmBytes);
+
+  // Request pre-compiled WebAssembly.Module from the background service worker to bypass page CSP limits
+  const response = await new Promise<any>((resolve) => {
+    chrome.runtime.sendMessage({ type: "LOKI_GET_WASM_MODULE" }, (res) => {
+      resolve(res);
+    });
+  });
+
+  if (!response || !response.success || !response.module) {
+    throw new Error(`Failed to retrieve compiled WebAssembly Module from background: ${response?.error || 'Unknown error'}`);
+  }
+
+  // Instantiate the pre-compiled WebAssembly Module directly
+  await init(response.module);
   isWasmInitialized = true;
   console.log("[Loki Content] Rhai WASM engine sandbox initialized successfully.");
 }
