@@ -19,3 +19,11 @@ if (fs.existsSync(iconsSrc)) {
   fs.cpSync(iconsSrc, iconsDest, { recursive: true });
   console.log(`Copied ${iconsSrc} -> ${iconsDest}`);
 }
+
+// Copy rules.json directory to destination
+const rulesSrc = './rules.json';
+const rulesDest = path.join(outDir, 'rules.json');
+if (fs.existsSync(rulesSrc)) {
+  fs.copyFileSync(rulesSrc, rulesDest);
+  console.log(`Copied ${rulesSrc} -> ${rulesDest}`);
+}
