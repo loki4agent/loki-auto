@@ -19,6 +19,8 @@ use std::sync::{
 };
 use tokio::sync::{mpsc, oneshot};
 use tracing::info;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 
 pub const LOG_SERVER_START: &str = "loki-auto Open-Source MCP Server initialized on 127.0.0.1";
 
@@ -190,29 +192,42 @@ async fn main() {
     let port = load_port();
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
-    let state = Arc::new(AppState {
-        pending_tasks: Mutex::new(HashMap::new()),
-        ws_sender: Mutex::new(None),
-        active_tabs: Mutex::new(Vec::new()),
-        task_counter: AtomicU64::new(0),
-    });
+    let listener_res = tokio::net::TcpListener::bind(addr).await;
+    match listener_res {
+        Ok(listener) => {
+            // We are the Daemon!
+            let state = Arc::new(AppState {
+                pending_tasks: Mutex::new(HashMap::new()),
+                ws_sender: Mutex::new(None),
+                active_tabs: Mutex::new(Vec::new()),
+                task_counter: AtomicU64::new(0),
+            });
 
-    let app = Router::new()
-        .route("/ws", get(ws_handler))
-        .with_state(state.clone());
+            let app = Router::new()
+                .route("/ws", get(ws_handler))
+                .route("/ws-mcp", get(ws_mcp_handler))
+                .with_state(state.clone());
 
-    // Start Axum server in a background thread
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    info!("Starting Axum WebSocket gateway on {}", addr);
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+            info!("Starting Axum WebSocket gateway on {}", addr);
+            tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
 
-    // Output server startup log to stderr
-    eprintln!("{} on port {}", LOG_SERVER_START, port);
+            // Output server startup log to stderr
+            eprintln!("{} on port {}", LOG_SERVER_START, port);
 
-    // Stdio MCP JSON-RPC loop on the main thread
-    run_mcp_loop(state).await;
+            // Stdio MCP JSON-RPC loop on the main thread
+            run_mcp_loop(state).await;
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
+            // Port is already occupied! We are the Bridge!
+            eprintln!("[Loki MCP] Port {} is already in use. Running in Bridge Mode, forwarding stdio to the active daemon...", port);
+            run_mcp_bridge(port).await;
+        }
+        Err(err) => {
+            panic!("Failed to bind to port {}: {}", port, err);
+        }
+    }
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -297,162 +312,231 @@ async fn run_mcp_loop(state: Arc<AppState>) {
         }
 
         if let Ok(req) = serde_json::from_str::<serde_json::Value>(&line) {
-            let id = req.get("id").cloned().unwrap_or(serde_json::Value::Null);
-            let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
-
-            match method {
-                "initialize" => {
-                    let response = json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "protocolVersion": "2024-11-05",
-                            "capabilities": {
-                                "tools": {}
-                            },
-                            "serverInfo": {
-                                "name": "loki-mcp-server",
-                                "version": "0.1.1"
-                            }
-                        }
-                    });
-                    send_mcp_response(response);
+            let state_c = state.clone();
+            tokio::spawn(async move {
+                if let Some(resp) = handle_mcp_request(state_c, req).await {
+                    send_mcp_response(resp);
                 }
-                "tools/list" => {
-                    let response = json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "tools": [
-                                {
-                                    "name": "list_tabs",
-                                    "description": "Lists all open browser tabs and their status.",
-                                    "inputSchema": {
-                                        "type": "object",
-                                        "properties": {}
-                                    }
-                                },
-                                {
-                                    "name": "open_tab",
-                                    "description": "Opens a new browser tab with the specified URL.",
-                                    "inputSchema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "url": { "type": "string", "description": "The destination URL" },
-                                            "active": { "type": "boolean", "description": "Whether to focus the tab immediately", "default": true }
-                                        },
-                                        "required": ["url"]
-                                    }
-                                },
-                                {
-                                    "name": "close_tab",
-                                    "description": "Closes the target browser tab.",
-                                    "inputSchema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "tab_id": { "type": "integer", "description": "The Chrome Tab ID to close" }
-                                        },
-                                        "required": ["tab_id"]
-                                    }
-                                },
-                                {
-                                    "name": "activate_tab",
-                                    "description": "Focuses and brings the target browser tab to foreground.",
-                                    "inputSchema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "tab_id": { "type": "integer", "description": "The Chrome Tab ID to activate" }
-                                        },
-                                        "required": ["tab_id"]
-                                    }
-                                },
-                                {
-                                    "name": "execute_loki_oneshot",
-                                    "description": "Executes a Rhai automation script synchronously inside a sandboxed VM in the browser.",
-                                    "inputSchema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "target_tab_id": { "type": "integer", "description": "Optionally specify Chrome Tab ID" },
-                                            "target_url_pattern": { "type": "string", "description": "Optionally specify URL wildcard match pattern" },
-                                            "rhai_script": { "type": "string", "description": "The Rhai script to execute" },
-                                            "payload": { "type": "object", "description": "JSON payload variables injected as constant 'payload'" }
-                                        },
-                                        "required": ["rhai_script"]
-                                    }
-                                },
-                                {
-                                    "name": "get_rhai_documentation",
-                                    "description": "Returns the complete developer reference guide and API specifications for writing Rhai automation scripts inside the Loki browser sandbox.",
-                                    "inputSchema": {
-                                        "type": "object",
-                                        "properties": {}
-                                    }
-                                }
-                            ]
-                        }
-                    });
-                    send_mcp_response(response);
-                }
-                "tools/call" => {
-                    let params = req
-                        .get("params")
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null);
-                    let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                    let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-
-                    let state_clone = state.clone();
-                    let id_clone = id.clone();
-                    let tool_name_str = tool_name.to_string();
-
-                    tokio::spawn(async move {
-                        let result = handle_tool_call(state_clone, &tool_name_str, arguments).await;
-                        match result {
-                            Ok(res_val) => {
-                                send_mcp_response(json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id_clone,
-                                    "result": {
-                                        "content": [
-                                            {
-                                                "type": "text",
-                                                "text": serde_json::to_string_pretty(&res_val).unwrap_or_default()
-                                            }
-                                        ]
-                                    }
-                                }));
-                            }
-                            Err(err_msg) => {
-                                send_mcp_response(json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id_clone,
-                                    "error": {
-                                        "code": -32603,
-                                        "message": err_msg
-                                    }
-                                }));
-                            }
-                        }
-                    });
-                }
-                _ => {
-                    // Method not found or generic response
-                    if !id.is_null() {
-                        send_mcp_response(json!({
-                            "jsonrpc": "2.0",
-                            "id": id,
-                            "error": {
-                                "code": -32601,
-                                "message": format!("Method '{}' not found", method)
-                            }
-                        }));
-                    }
-                }
-            }
+            });
         }
 
         line.clear();
     }
+}
+
+async fn handle_mcp_request(state: Arc<AppState>, req: serde_json::Value) -> Option<serde_json::Value> {
+    let id = req.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+    match method {
+        "initialize" => Some(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "loki-mcp-server",
+                    "version": "0.1.1"
+                }
+            }
+        })),
+        "tools/list" => Some(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "list_tabs",
+                        "description": "Lists all open browser tabs and their status.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "name": "open_tab",
+                        "description": "Opens a new browser tab with the specified URL.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "url": { "type": "string", "description": "The destination URL" },
+                                "active": { "type": "boolean", "description": "Whether to focus the tab immediately", "default": true }
+                            },
+                            "required": ["url"]
+                        }
+                    },
+                    {
+                        "name": "close_tab",
+                        "description": "Closes the target browser tab.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "tab_id": { "type": "integer", "description": "The Chrome Tab ID to close" }
+                            },
+                            "required": ["tab_id"]
+                        }
+                    },
+                    {
+                        "name": "activate_tab",
+                        "description": "Focuses and brings the target browser tab to foreground.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "tab_id": { "type": "integer", "description": "The Chrome Tab ID to activate" }
+                            },
+                            "required": ["tab_id"]
+                        }
+                    },
+                    {
+                        "name": "execute_loki_oneshot",
+                        "description": "Executes a Rhai automation script synchronously inside a sandboxed VM in the browser.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "target_tab_id": { "type": "integer", "description": "Optionally specify Chrome Tab ID" },
+                                "target_url_pattern": { "type": "string", "description": "Optionally specify URL wildcard match pattern" },
+                                "rhai_script": { "type": "string", "description": "The Rhai script to execute" },
+                                "payload": { "type": "object", "description": "JSON payload variables injected as constant 'payload'" }
+                            },
+                            "required": ["rhai_script"]
+                        }
+                    },
+                    {
+                        "name": "get_rhai_documentation",
+                        "description": "Returns the complete developer reference guide and API specifications for writing Rhai automation scripts inside the Loki browser sandbox.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {}
+                        }
+                    }
+                ]
+            }
+        })),
+        "tools/call" => {
+            let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+            let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+
+            let result = handle_tool_call(state, tool_name, arguments).await;
+            match result {
+                Ok(res_val) => Some(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": serde_json::to_string_pretty(&res_val).unwrap_or_default()
+                            }
+                        ]
+                    }
+                })),
+                Err(err_msg) => Some(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32603,
+                        "message": err_msg
+                    }
+                })),
+            }
+        }
+        _ => {
+            if !id.is_null() {
+                Some(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32601,
+                        "message": format!("Method '{}' not found", method)
+                    }
+                }))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+async fn ws_mcp_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_ws_mcp(socket, state))
+}
+
+async fn handle_ws_mcp(socket: WebSocket, state: Arc<AppState>) {
+    let (mut ws_sender, mut ws_receiver) = socket.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+
+    let mut sender_task = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if ws_sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let state_c = state.clone();
+    let mut receiver_task = tokio::spawn(async move {
+        while let Some(Ok(Message::Text(text))) = ws_receiver.next().await {
+            if let Ok(req) = serde_json::from_str::<serde_json::Value>(&text) {
+                let tx_c = tx.clone();
+                let state_cc = state_c.clone();
+                tokio::spawn(async move {
+                    if let Some(resp) = handle_mcp_request(state_cc, req).await {
+                        let _ = tx_c.send(Message::Text(resp.to_string()));
+                    }
+                });
+            }
+        }
+    });
+
+    tokio::select! {
+        _ = &mut sender_task => {}
+        _ = &mut receiver_task => {}
+    }
+}
+
+async fn run_mcp_bridge(port: u16) {
+    let url = format!("ws://127.0.0.1:{}/ws-mcp", port);
+    let (ws_stream, _) = match connect_async(&url).await {
+        Ok(res) => res,
+        Err(err) => {
+            eprintln!("Failed to connect to running Loki daemon at {}: {}", url, err);
+            std::process::exit(1);
+        }
+    };
+    let (mut ws_write, mut ws_read) = ws_stream.split();
+
+    // Spawn task to read from websocket and print to stdout (to LLM)
+    let write_task = tokio::spawn(async move {
+        while let Some(Ok(TungsteniteMessage::Text(text))) = ws_read.next().await {
+            println!("{}", text);
+            use std::io::Write;
+            std::io::stdout().flush().unwrap();
+        }
+    });
+
+    // Read from stdin (from LLM) and send to websocket
+    let stdin = std::io::stdin();
+    let mut reader = std::io::BufReader::new(stdin);
+    let mut line = String::new();
+
+    while let Ok(bytes_read) = reader.read_line(&mut line) {
+        if bytes_read == 0 {
+            break; // EOF
+        }
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            if let Err(_) = ws_write.send(TungsteniteMessage::Text(trimmed.to_string().into())).await {
+                break;
+            }
+        }
+        line.clear();
+    }
+
+    let _ = write_task.await;
 }
 
 fn send_mcp_response(response: serde_json::Value) {

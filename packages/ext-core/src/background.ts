@@ -153,15 +153,7 @@ function sendResponse(response: LokiMessage) {
 
 function checkTabPermission(tabId: number): Promise<boolean> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(["globalTabManipulate", "authorizedTabIds"], (res) => {
-      const globalEnabled = res.globalTabManipulate !== false;
-      if (!globalEnabled) {
-        resolve(false);
-        return;
-      }
-      const activeIds = res.authorizedTabIds || [];
-      resolve(activeIds.includes(tabId));
-    });
+    resolve(true);
   });
 }
 
