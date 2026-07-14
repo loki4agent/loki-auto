@@ -1,5 +1,4 @@
 import { LokiMessage, TabMetadata } from "@loki/shared-types";
-import { wasmBase64 } from "./loki_sandbox_wasm";
 
 let ws: WebSocket | null = null;
 let reconnectTimer: any = null;
@@ -276,40 +275,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 chrome.tabs.onActivated.addListener(() => syncTabs());
 
-let compiledWasmModule: WebAssembly.Module | null = null;
-
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function getWasmModule(): Promise<WebAssembly.Module> {
-  if (compiledWasmModule) return compiledWasmModule;
-  const bytes = base64ToUint8Array(wasmBase64);
-  compiledWasmModule = await WebAssembly.compile(bytes);
-  return compiledWasmModule;
-}
-
-// Listen for options port change, content script registration, or WebAssembly compilation request
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+// Listen for options port change or content script registration
+chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "LOKI_PORT_CHANGED") {
     ws?.close();
     connectToHost();
-  } else if (message.type === "LOKI_GET_WASM_MODULE") {
-    getWasmModule()
-      .then((module) => {
-        sendResponse({ success: true, module });
-      })
-      .catch((err) => {
-        console.error("[Loki Background] WebAssembly compilation failed:", err);
-        sendResponse({ success: false, error: String(err) });
-      });
-    return true; // Keep message channel open for async response
   }
 });
 
